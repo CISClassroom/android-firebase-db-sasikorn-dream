@@ -1,11 +1,11 @@
 package com.cis.mydatabaseapplication
 
-class TodoItem{
-
-    companion object Factory{
-        fun create():TodoItem=TodoItem()
+class ToDo {
+    companion object Factory {
+        fun create(): ToDo = ToDo()
     }
-    var objectID:String?=null
-    var todoName:String?=null
-    var status:Boolean?=null
+
+    var objectId: String? = null
+    var todoText: String? = null
+    var done: Boolean? = false
 }

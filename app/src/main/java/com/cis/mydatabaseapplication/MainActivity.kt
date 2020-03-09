@@ -1,109 +1,137 @@
 package com.cis.mydatabaseapplication
 
+//import ToDoItemAdapter
+import android.app.AlertDialog
 import android.os.Bundle
-import androidx.appcompat.app.AppCompatActivity
-import android.view.Menu
-import android.view.MenuItem
+import android.util.Log
+import android.view.View
 import android.widget.EditText
 import android.widget.ListView
-import android.view.View
-import android.widget.ListAdapter
-import androidx.appcompat.app.AlertDialog
+import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
+import com.cis.mydatabaseapplication.ItemRowListener
+import com.cis.mydatabaseapplication.ToDo
 import com.google.firebase.database.*
-
 import kotlinx.android.synthetic.main.activity_main.*
 
-class MainActivity : AppCompatActivity() {
+
+class MainActivity : AppCompatActivity(), ItemRowListener {
+
+    lateinit var mDatabase: DatabaseReference
+
+    var toDoItemList: MutableList<ToDo>? = null
+    lateinit var adapter: ToDoItemAdapter
+    private var listViewItems: ListView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         setSupportActionBar(toolbar)
 
-        mDB = FirebaseDatabase.getInstance().reference
-        var listviewitem = findViewById<View>(R.id.list_view) as ListView
+        //Enable Firebase persistence for offline access
+        FirebaseDatabase.getInstance().setPersistenceEnabled(true)
+        //create firebase object
+        mDatabase = FirebaseDatabase.getInstance().reference
+        listViewItems = findViewById<View>(R.id.items_list) as ListView
 
-        var todoItemList = mutableListOf<TodoItem>()
-        var adapter = TODOAdapter(this, todoItemList!!)
-        listviewitem!!.setAdapter(adapter)
-        mDB.orderByKey().addListenerForSingleValueEvent(itemListener)
+        toDoItemList = mutableListOf<ToDo>()
+        adapter = ToDoItemAdapter(this, toDoItemList!!)
+        listViewItems!!.setAdapter(adapter)
+        mDatabase.orderByKey().addListenerForSingleValueEvent(itemListener)
 
         fab.setOnClickListener { view ->
-            addNewTODO()
+            addNewItemDialog()
         }
-    }
 
-    private fun TODOAdapter(
-        mainActivity: MainActivity,
-        todoItemList: MutableList<TodoItem>
-    ): ListAdapter? {
-        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
     }
 
     var itemListener: ValueEventListener = object : ValueEventListener {
-        override fun onDataChange(p0: DataSnapshot) {
-            addDataTolist(p0)
+
+        override fun onDataChange(dataSnapshot: DataSnapshot) {
+            // call function
+            addDataToList(dataSnapshot)
         }
 
-        override fun onCancelled(p0: DatabaseError) {
-
+        override fun onCancelled(databaseError: DatabaseError) {
+            // Getting Item failed, display log a message
+            Log.w("MainActivity", "loadItem:onCancelled", databaseError.toException())
         }
     }
 
-    private fun addDataTolist(dataSnapshot: DataSnapshot) {
-        val item = dataSnapshot.children.iterator()
-        if (item.hasNext()) {
-            val todoListIndex = item.next()
-            val itemsIterator = todoListIndex.children.iterator()
+    private fun addDataToList(dataSnapshot: DataSnapshot) {
+        val items = dataSnapshot.children.iterator()
+        // Check if current database contains any collection
+        if (items.hasNext()) {
+            val toDoListindex = items.next()
+            val itemsIterator = toDoListindex.children.iterator()
 
+            // check if the collection has any to do items or not
             while (itemsIterator.hasNext()) {
+                // get current item
                 val currentItem = itemsIterator.next()
                 val map = currentItem.getValue() as HashMap<String, Any>
-                val todoItem = TodoItem.create()
-                todoItem.objectID = currentItem.key
-                todoItem.status = map.get("Status") as Boolean
-                todoItem.todoName = map.get("Todo Name") as String
-
-
+                // add data to object
+                val todoItem = ToDo.create()
+                todoItem.objectId = currentItem.key
+                todoItem.done = map.get("done") as Boolean?
+                todoItem.todoText = map.get("todoText") as String?
+                toDoItemList!!.add(todoItem);
             }
+
+            adapter.notifyDataSetChanged()
         }
     }
 
-    lateinit var mDB: DatabaseReference
-
-    private fun addNewTODO() {
-        val dialog = AlertDialog.Builder(this)
-        val et = EditText(this)
-
-        dialog.setMessage("Add new TODO")
-        dialog.setTitle("Enter TODO")
-        dialog.setView(et)
-
-        dialog.setPositiveButton("Submit") { dialog, posisitiveButton ->
-            val newTODO = TodoItem.create()
-            newTODO.todoName = et.text.toString()
-            newTODO.status = false
-            val newItemDB = mDB.child("TODO_item").push()
-            newTODO.objectID = newItemDB.key
-            newItemDB.setValue(newTODO)
+    //Add new item to DB
+    private fun addNewItemDialog() {
+        // Create dialog
+        val alert = AlertDialog.Builder(this)
+        val itemEditText = EditText(this)
+        alert.setMessage("Add New Item")
+        alert.setTitle("Enter To Do Item Text")
+        alert.setView(itemEditText)
+        // Set submit button dialog
+        alert.setPositiveButton("Submit") { dialog, positiveButton ->
+            // create new todoobject
+            val todoItem = ToDo.create()
+            todoItem.todoText = itemEditText.text.toString()
+            todoItem.done = false
+            // create new record
+            val newItem = mDatabase.child("todo_item").push()
+            // add new key to todoobject
+            todoItem.objectId = newItem.key
+            // set todoobject to new record on firebase db
+            newItem.setValue(todoItem)
+            // close dialog
             dialog.dismiss()
+            // display data to user
+            Toast.makeText(this,
+                "Item saved with ID " + todoItem.objectId, Toast.LENGTH_SHORT).show()
+
+            toDoItemList!!.add(todoItem);
+            adapter.notifyDataSetChanged()
         }
-        dialog.show()
+        alert.show()
     }
 
-    override fun onCreateOptionsMenu(menu: Menu): Boolean {
-        // Inflate the menu; this adds items to the action bar if it is present.
-        menuInflater.inflate(R.menu.menu_main, menu)
-        return true
+    override fun modifyItemState(itemObjectId: String, index: Int, isDone: Boolean) {
+        //get child reference in database via the ObjectID
+
+        //set new value
+        toDoItemList!!.get(index).done = !isDone
+        adapter.notifyDataSetChanged()
+        val itemReference = mDatabase.child("todo_item").child(itemObjectId)
+        itemReference.child("done").setValue(isDone);
+}
+    override fun onItemDelete(itemObjectId: String, index: Int) {
+
+        toDoItemList!!.removeAt(index)
+        adapter.notifyDataSetChanged()
+        //get child reference in database via the ObjectID
+        val itemReference = mDatabase.child("todo_item").child(itemObjectId)
+        //deletion can be done via removeValue() method
+        itemReference.removeValue()
+
     }
 
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        // Handle action bar item clicks here. The action bar will
-        // automatically handle clicks on the Home/Up button, so long
-        // as you specify a parent activity in AndroidManifest.xml.
-        return when (item.itemId) {
-            R.id.action_settings -> true
-            else -> super.onOptionsItemSelected(item)
-        }
-    }
 }
